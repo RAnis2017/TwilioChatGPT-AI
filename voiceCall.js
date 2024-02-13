@@ -4,7 +4,6 @@ const express = require("express");
 const request = require("request");
 const fs = require("fs");
 const VoiceResponse = require("twilio").twiml.VoiceResponse;
-const { SpeechClient } = require("@google-cloud/speech");
 const bodyParser = require("body-parser"); // Or another suitable XML parser
 const { generateResponse, transcribe } = require("./chatgpt");
 
@@ -14,14 +13,6 @@ const port = 1337;
 // Parse XML request bodies
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use('/assets', express.static('assets'))
-// Your Twilio credentials
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const client = require("twilio")(accountSid, authToken);
-const speechTimeout = 3;
-
-// Instantiate a Google Speech-to-Text client
-const speechClient = new SpeechClient();
 
 async function waitForAnswer(response, res) {
   console.log("Waiting for another query...");
