@@ -76,8 +76,11 @@ async function generateResponse(prompt) {
   // turn the string to speech and return the file name
   const fileName = 'output-'+Date.now()+'.mp3';
 
-  await elevenLabsTextToSpeech(response.choices[0].message.content, fileName);
+  if (process.env.USE_ELEVEN_LABS === "true") {
+    await elevenLabsTextToSpeech(response.choices[0].message.content, fileName);
+  }
   return {content: response.choices[0].message.content, fileName};
+
 }
 
 // Example usage:

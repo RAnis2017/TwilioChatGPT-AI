@@ -6,25 +6,39 @@ const fs = require("fs");
 const VoiceResponse = require("twilio").twiml.VoiceResponse;
 const bodyParser = require("body-parser"); // Or another suitable XML parser
 const { generateResponse, transcribe } = require("./chatgpt");
+const USE_ELEVEN_LABS = process.env.USE_ELEVEN_LABS;
+const USE_WHISPER_AI = process.env.USE_WHISPER_AI;
 
 const app = express();
 const port = 1337;
 
 // Parse XML request bodies
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use('/assets', express.static('assets'))
+app.use("/assets", express.static("assets"));
 
 async function waitForAnswer(response, res) {
   console.log("Waiting for another query...");
   const twiml = new VoiceResponse();
-  twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);
+  if (USE_ELEVEN_LABS === "true") {
+    twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);
+  } else {
+    twiml.say(response.message);
+  }
   twiml.play(`${process.env.HOST_ASSETS_URL}/continue.mp3`);
 
   // Record the entire call
-  twiml.record({
-    action: "/recording-complete", // Endpoint to handle  when recording is done
-    recordingStatusCallbackEvent: "completed",
-  });
+  if (USE_WHISPER_AI === "true") {
+    twiml.record({
+      recordingStatusCallbackEvent: "completed",
+      action: "/recording-complete", // POST request to this endpoint after gathering
+    });
+  } else {
+    twiml.gather({
+      input: "speech", //
+      timeout: 3, // 5 seconds to start speaking
+      action: "/process-speech", // POST request to this endpoint after gathering
+    });
+  }
 
   res.type("text/xml");
   res.send(twiml.toString());
@@ -36,10 +50,18 @@ app.post("/voice", async (req, res) => {
   twiml.play(`${process.env.HOST_ASSETS_URL}/introduction.mp3`);
 
   // Record the entire call
-  twiml.record({
-    recordingStatusCallbackEvent: "completed",
-    action: "/recording-complete", // POST request to this endpoint after gathering
-  });
+  if (USE_WHISPER_AI === "true") {
+    twiml.record({
+      recordingStatusCallbackEvent: "completed",
+      action: "/recording-complete", // POST request to this endpoint after gathering
+    });
+  } else {
+    twiml.gather({
+      input: "speech", //
+      timeout: 3, // 5 seconds to start speaking
+      action: "/process-speech", // POST request to this endpoint after gathering
+    });
+  }
 
   res.type("text/xml");
   res.send(twiml.toString());
@@ -47,7 +69,6 @@ app.post("/voice", async (req, res) => {
 
 // Endpoint to handle recording completion
 app.post("/recording-complete", async (req, res) => {
-
   // add a delay to ensure the recording is processed
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
@@ -80,7 +101,13 @@ app.post("/recording-complete", async (req, res) => {
           if (chatGPTResponse.continue) {
             await waitForAnswer(chatGPTResponse, res);
           } else {
-            twiml.say(chatGPTResponse.message);
+            if (USE_ELEVEN_LABS === "true") {
+              twiml.play(
+                `${process.env.HOST_ASSETS_URL}/${chatGPTResponse.fileName}`
+              );
+            } else {
+              twiml.say(chatGPTResponse.message);
+            }
             res.type("text/xml");
             res.send(twiml.toString());
           }
@@ -90,6 +117,11 @@ app.post("/recording-complete", async (req, res) => {
           res.type("text/xml");
           res.send("<Response/>"); // Send an empty response to end the Twilio interaction
         }
+      }).on("error", (err) => {
+        console.error("Error downloading file", err);
+        twiml.play(`${process.env.HOST_ASSETS_URL}/error.mp3`);
+        res.type("text/xml");
+        res.send("<Response/>"); // Send an empty response to end the Twilio interaction
       });
     });
 });
@@ -114,15 +146,18 @@ app.post("/process-speech", async (req, res) => {
 async function processAppointmentRequest(text) {
   if (text.toLowerCase().includes("bye") || text.toLowerCase().includes("no")) {
     return {
-      message:
-        "Bye",
+      message: "Bye",
       fileName: "bye.mp3",
       continue: false,
     };
   } else {
     try {
       let message = await generateResponse(text);
-      return { message: message.content, fileName: message.fileName, continue: true };
+      return {
+        message: message.content,
+        fileName: message.fileName,
+        continue: true,
+      };
     } catch (error) {
       return { message: "Sorry, I don't understand.", continue: false };
     }
