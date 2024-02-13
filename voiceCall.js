@@ -95,9 +95,7 @@ app.post("/recording-complete", async (req, res) => {
           }
         } catch (error) {
           console.log("error", error);
-          twiml.say(
-            "There was an error processing your request. Please repeat your query. If it doesn't work then call back later. Thanks!"
-          );
+          twiml.play(`${process.env.HOST_ASSETS_URL}/error.mp3`);
           res.type("text/xml");
           res.send("<Response/>"); // Send an empty response to end the Twilio interaction
         }
