@@ -17,7 +17,7 @@ const elevenLabsTextToSpeech = async (text, fileName) => {
       'xi-api-key': process.env.ELEVEN_LABS_API_KEY,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({"pronunciation_dictionary_locators":[],"model_id":"eleven_multilingual_v2","text":text,"voice_settings":{"similarity_boost":1,"stability":1}})
+    body: JSON.stringify({"pronunciation_dictionary_locators":[],"model_id":"eleven_turbo_v2","text":text,"voice_settings":{"similarity_boost":1,"stability":1}})
   };
   
   request.post('https://api.elevenlabs.io/v1/text-to-speech/LYZW2EixTuv8YqteGC7k?optimize_streaming_latency=1&output_format=mp3_22050_32', options)
@@ -63,7 +63,7 @@ async function generateResponse(prompt) {
         Follow the instructions in the System role always.
         Keep those instructions in context all the time.
 
-        Only give 2 lines MAX.
+        GIVE ANSWERS IN ONLY 30 WORDS MAX. KEEP IT SHORT AND TO THE POINT.
 
         ${prompt}
         `,

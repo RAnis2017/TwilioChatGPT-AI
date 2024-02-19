@@ -8,35 +8,42 @@ const bodyParser = require("body-parser"); // Or another suitable XML parser
 const { generateResponse, transcribe } = require("./chatgpt");
 const USE_ELEVEN_LABS = process.env.USE_ELEVEN_LABS;
 const USE_WHISPER_AI = process.env.USE_WHISPER_AI;
+const client = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 const app = express();
 const port = 1337;
 
-// Parse XML request bodies
+// Parse XML request bodies and JSON
 app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
+
 app.use("/assets", express.static("assets"));
 
-async function waitForAnswer(response, res) {
+async function waitForAnswer(response, res, INCLUDE_WHISPER_AI = "false", INCLUDE_ELEVEN_LABS = "false") {
   console.log("Waiting for another query...");
   const twiml = new VoiceResponse();
-  if (USE_ELEVEN_LABS === "true") {
+  if (INCLUDE_ELEVEN_LABS === "true") {
     twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);
   } else {
     twiml.say(response.message);
   }
   twiml.play(`${process.env.HOST_ASSETS_URL}/continue.mp3`);
 
+  processVoiceRequest(twiml, res, INCLUDE_WHISPER_AI, INCLUDE_ELEVEN_LABS);
+}
+
+function processVoiceRequest(twiml, res, INCLUDE_WHISPER_AI = "false", INCLUDE_ELEVEN_LABS = "false") {
   // Record the entire call
-  if (USE_WHISPER_AI === "true") {
+  if (INCLUDE_WHISPER_AI === "true") {
     twiml.record({
       recordingStatusCallbackEvent: "completed",
-      action: "/recording-complete", // POST request to this endpoint after gathering
+      action: "/recording-complete?includeElevenLabs=" + INCLUDE_ELEVEN_LABS, // POST request to this endpoint after gathering
     });
   } else {
     twiml.gather({
       input: "speech", //
       timeout: 3, // 5 seconds to start speaking
-      action: "/process-speech", // POST request to this endpoint after gathering
+      action: "/process-speech?includeElevenLabs=" + INCLUDE_ELEVEN_LABS, // POST request to this endpoint after gathering
     });
   }
 
@@ -44,27 +51,31 @@ async function waitForAnswer(response, res) {
   res.send(twiml.toString());
 }
 
+app.post("/initiate-call", async (req, res) => {
+  console.log(req.body);
+  client.calls.create({
+    url: `${process.env.HOST_URL}/voice?outbound=true&useWhisperAI=${req.body.useWhisperAI}&useElevenLabs=${req.body.useElevenLabs}`,
+    to: req.body.phoneNumber,
+    from: process.env.TWILIO_PHONE_NUMBER
+  })
+  .then(call => {
+    console.log(call.sid);
+    res.send('Call initiated');
+  });
+});
+
 // Endpoint for incoming calls
 app.post("/voice", async (req, res) => {
   const twiml = new VoiceResponse();
-  twiml.play(`${process.env.HOST_ASSETS_URL}/introduction.mp3`);
 
   // Record the entire call
-  if (USE_WHISPER_AI === "true") {
-    twiml.record({
-      recordingStatusCallbackEvent: "completed",
-      action: "/recording-complete", // POST request to this endpoint after gathering
-    });
+  if (req.query.outbound === "true") {
+    twiml.play(`${process.env.HOST_ASSETS_URL}/introduction-2.mp3`);
+    processVoiceRequest(twiml, res, req.query.useWhisperAI, req.query.useElevenLabs);
   } else {
-    twiml.gather({
-      input: "speech", //
-      timeout: 3, // 5 seconds to start speaking
-      action: "/process-speech", // POST request to this endpoint after gathering
-    });
+    twiml.play(`${process.env.HOST_ASSETS_URL}/introduction.mp3`);
+    processVoiceRequest(twiml, res, USE_WHISPER_AI, USE_ELEVEN_LABS);
   }
-
-  res.type("text/xml");
-  res.send(twiml.toString());
 });
 
 // Endpoint to handle recording completion
@@ -99,7 +110,11 @@ app.post("/recording-complete", async (req, res) => {
             transcribedText.text
           );
           if (chatGPTResponse.continue) {
-            await waitForAnswer(chatGPTResponse, res);
+            if (req.query.includeElevenLabs === "true") {
+              await waitForAnswer(chatGPTResponse, res, true, req.query.includeElevenLabs);
+            } else {
+              await waitForAnswer(chatGPTResponse, res, true);
+            }
           } else {
             if (USE_ELEVEN_LABS === "true") {
               twiml.play(
@@ -134,7 +149,11 @@ app.post("/process-speech", async (req, res) => {
   console.log("Transcription:", transcription, response);
 
   if (response.continue) {
-    await waitForAnswer(response, res);
+    if (req.query.includeElevenLabs === "true") {
+      await waitForAnswer(response, res, false, req.query.includeElevenLabs);
+    } else {
+      await waitForAnswer(response, res);
+    }
   } else {
     twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);
     res.type("text/xml");
