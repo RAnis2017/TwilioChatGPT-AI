@@ -40,7 +40,7 @@ export default function Home() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24 bg-black text-white">
+    <main className="flex flex-col items-center justify-between p-24 bg-black text-white">
       <div className="container mx-auto p-8">
         <h1 className="text-3xl font-bold mb-6">Start a Call</h1>
         <div className="mb-4">
@@ -83,7 +83,8 @@ export default function Home() {
       <div className="container mx-auto p-8"> 
         <h2 className="text-2xl font-semibold mb-4">Call Logs</h2>
         {
-          phoneNumber && phoneNumber.length > 6 && callInitiated && <CallLog phoneNumber={phoneNumber} isWhisperAIEnabled={selectedOption === '1' || selectedOption === '3'} isElevenLabsEnabled={selectedOption === '1' || selectedOption === '2'} />
+          phoneNumber && phoneNumber.length > 6 && callInitiated ? <CallLog phoneNumber={phoneNumber} isWhisperAIEnabled={selectedOption === '1' || selectedOption === '3'} isElevenLabsEnabled={selectedOption === '1' || selectedOption === '2'} />
+          : <div className="text-center text-gray-400">No logs to display</div>
         }
       </div>
     </main>

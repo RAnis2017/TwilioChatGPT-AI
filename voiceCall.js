@@ -72,13 +72,14 @@ app.get("/logs", eventsHandler);
 function logToCallFileAndNotify(callData, message) {
   // const filename = `${callData.phoneNumber}_${callData.startTime}.txt`; // Unique filename
   // logToFile(filename, { timestamp: Date.now(),  message });
+
+  if (!callData.phoneNumber) {
+    return;
+  }
+
   const logMessageJSON = JSON.stringify({
     timestamp: Date.now(),
     phoneNumber: callData.phoneNumber,
-    options: {
-      useWhisperAI: callData.useWhisperAI,
-      useElevenLabs: callData.useElevenLabs,
-    },
     message,
   });
   const client = clients.find((client) =>
@@ -104,7 +105,8 @@ async function waitForAnswer(
   response,
   res,
   INCLUDE_WHISPER_AI = "false",
-  INCLUDE_ELEVEN_LABS = "false"
+  INCLUDE_ELEVEN_LABS = "false",
+  phoneNumber = null
 ) {
   console.log("Waiting for another query...");
   const twiml = new VoiceResponse();
@@ -115,26 +117,37 @@ async function waitForAnswer(
   }
   twiml.play(`${process.env.HOST_ASSETS_URL}/continue.mp3`);
 
-  processVoiceRequest(twiml, res, INCLUDE_WHISPER_AI, INCLUDE_ELEVEN_LABS);
+  processVoiceRequest(twiml, res, INCLUDE_WHISPER_AI, INCLUDE_ELEVEN_LABS, phoneNumber);
 }
 
 function processVoiceRequest(
   twiml,
   res,
   INCLUDE_WHISPER_AI = "false",
-  INCLUDE_ELEVEN_LABS = "false"
+  INCLUDE_ELEVEN_LABS = "false",
+  phoneNumber = null
 ) {
   // Record the entire call
+
   if (INCLUDE_WHISPER_AI === "true") {
+    console.log("Using Whisper AI");
     twiml.record({
       recordingStatusCallbackEvent: "completed",
-      action: "/recording-complete?includeElevenLabs=" + INCLUDE_ELEVEN_LABS, // POST request to this endpoint after gathering
+      action:
+        "/recording-complete?includeElevenLabs=" +
+        INCLUDE_ELEVEN_LABS +
+        "&phoneNumber=" +
+        phoneNumber?.trim(), // POST request to this endpoint after gathering
     });
   } else {
     twiml.gather({
       input: "speech", //
       timeout: 3, // 5 seconds to start speaking
-      action: "/process-speech?includeElevenLabs=" + INCLUDE_ELEVEN_LABS, // POST request to this endpoint after gathering
+      action:
+        "/process-speech?includeElevenLabs=" +
+        INCLUDE_ELEVEN_LABS +
+        "&phoneNumber=" +
+        phoneNumber?.trim(), // POST request to this endpoint after gathering
     });
   }
 
@@ -145,10 +158,10 @@ function processVoiceRequest(
 app.post("/initiate-call", async (req, res) => {
   setTimeout(() => {
     logToCallFileAndNotify(req.body, "Call initiated");
-  }, 5000);
+  }, 2000);
   client.calls
     .create({
-      url: `${process.env.HOST_URL}/voice?outbound=true&useWhisperAI=${req.body.useWhisperAI}&useElevenLabs=${req.body.useElevenLabs}`,
+      url: `${process.env.HOST_URL}/voice?outbound=true&useWhisperAI=${req.body.useWhisperAI}&useElevenLabs=${req.body.useElevenLabs}&phoneNumber=${req.body.phoneNumber}`,
       to: req.body.phoneNumber,
       from: process.env.TWILIO_PHONE_NUMBER,
     })
@@ -161,6 +174,14 @@ app.post("/initiate-call", async (req, res) => {
 // Endpoint for incoming calls
 app.post("/voice", async (req, res) => {
   const twiml = new VoiceResponse();
+  setTimeout(() => {
+    logToCallFileAndNotify(
+      {
+        phoneNumber: req.query.phoneNumber,
+      },
+      "Call answered"
+    );
+  }, 2000);
 
   // Record the entire call
   if (req.query.outbound === "true") {
@@ -169,22 +190,36 @@ app.post("/voice", async (req, res) => {
       twiml,
       res,
       req.query.useWhisperAI,
-      req.query.useElevenLabs
+      req.query.useElevenLabs,
+      req.query.phoneNumber
     );
   } else {
     twiml.play(`${process.env.HOST_ASSETS_URL}/introduction.mp3`);
-    processVoiceRequest(twiml, res, USE_WHISPER_AI, USE_ELEVEN_LABS);
+    processVoiceRequest(
+      twiml,
+      res,
+      USE_WHISPER_AI,
+      USE_ELEVEN_LABS,
+      req.query.phoneNumber
+    );
   }
 });
 
 // Endpoint to handle recording completion
 app.post("/recording-complete", async (req, res) => {
   // add a delay to ensure the recording is processed
-  await new Promise((resolve) => setTimeout(resolve, 3000));
+  await new Promise((resolve) => setTimeout(resolve, 2000));
 
   const twiml = new VoiceResponse();
 
   const recordingUrl = req.body.RecordingUrl + ".mp3";
+
+  logToCallFileAndNotify(
+    {
+      phoneNumber: req.query.phoneNumber,
+    },
+    "Recording completed: " + recordingUrl
+  );
 
   // Download the recording (directly as MP3)
   request
@@ -205,23 +240,54 @@ app.post("/recording-complete", async (req, res) => {
           console.log("Recording saved:", filename, recordingUrl);
           try {
             const transcribedText = await transcribe(filename);
-            console.log(transcribedText.text);
+
+            logToCallFileAndNotify(
+              {
+                phoneNumber: req.query.phoneNumber,
+              },
+              "Transcription: " + transcribedText.text
+            );
 
             const chatGPTResponse = await processAppointmentRequest(
               transcribedText.text
             );
+
+            console.log('chatGPTResponse', chatGPTResponse);
+
+            logToCallFileAndNotify(
+              {
+                phoneNumber: req.query.phoneNumber,
+              },
+              "Transcription processed response: " + chatGPTResponse.message
+            );
+
             if (chatGPTResponse.continue) {
+              logToCallFileAndNotify(
+                {
+                  phoneNumber: req.query.phoneNumber,
+                },
+                "Waiting for another query..."
+              );
+
               if (req.query.includeElevenLabs === "true") {
                 await waitForAnswer(
                   chatGPTResponse,
                   res,
                   true,
-                  req.query.includeElevenLabs
+                  req.query.includeElevenLabs,
+                  req.query.phoneNumber
                 );
               } else {
-                await waitForAnswer(chatGPTResponse, res, true);
+                await waitForAnswer(chatGPTResponse, res, true, false, req.query.phoneNumber);
               }
             } else {
+              logToCallFileAndNotify(
+                {
+                  phoneNumber: req.query.phoneNumber,
+                },
+                "Response: " + chatGPTResponse.message
+              );
+
               if (USE_ELEVEN_LABS === "true") {
                 twiml.play(
                   `${process.env.HOST_ASSETS_URL}/${chatGPTResponse.fileName}`
@@ -233,13 +299,26 @@ app.post("/recording-complete", async (req, res) => {
               res.send(twiml.toString());
             }
           } catch (error) {
-            console.log("error", error);
+            logToCallFileAndNotify(
+              {
+                phoneNumber: req.query.phoneNumber,
+              },
+              "Error: " + error
+            );
+
             twiml.play(`${process.env.HOST_ASSETS_URL}/error.mp3`);
             res.type("text/xml");
             res.send("<Response/>"); // Send an empty response to end the Twilio interaction
           }
         })
         .on("error", (err) => {
+          logToCallFileAndNotify(
+            {
+              phoneNumber: req.query.phoneNumber,
+            },
+            "Error: " + err
+          );
+
           console.error("Error downloading file", err);
           twiml.play(`${process.env.HOST_ASSETS_URL}/error.mp3`);
           res.type("text/xml");
@@ -251,15 +330,27 @@ app.post("/recording-complete", async (req, res) => {
 // Endpoint to process transcribed speech
 app.post("/process-speech", async (req, res) => {
   const transcription = req.body.SpeechResult;
+  logToCallFileAndNotify(
+    {
+      phoneNumber: req.query.phoneNumber,
+    },
+    "Transcription: " + transcription
+  );
   const response = await processAppointmentRequest(transcription);
   const twiml = new VoiceResponse();
-  console.log("Transcription:", transcription, response);
+
+  logToCallFileAndNotify(
+    {
+      phoneNumber: req.query.phoneNumber,
+    },
+    "Transcription processed response: " + response.message
+  );
 
   if (response.continue) {
     if (req.query.includeElevenLabs === "true") {
-      await waitForAnswer(response, res, false, req.query.includeElevenLabs);
+      await waitForAnswer(response, res, false, req.query.includeElevenLabs, req.query.phoneNumber);
     } else {
-      await waitForAnswer(response, res);
+      await waitForAnswer(response, res, false, false, req.query.phoneNumber);
     }
   } else {
     twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);

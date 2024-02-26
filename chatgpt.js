@@ -20,7 +20,7 @@ const elevenLabsTextToSpeech = async (text, fileName) => {
     body: JSON.stringify({"pronunciation_dictionary_locators":[],"model_id":"eleven_turbo_v2","text":text,"voice_settings":{"similarity_boost":1,"stability":1}})
   };
   
-  request.post('https://api.elevenlabs.io/v1/text-to-speech/LYZW2EixTuv8YqteGC7k?optimize_streaming_latency=1&output_format=mp3_22050_32', options)
+  request.post('https://api.elevenlabs.io/v1/text-to-speech/'+process.env.ELEVEN_LABS_VOICE_ID+'?optimize_streaming_latency=1&output_format=mp3_22050_32', options)
   .on('response', function(response) {
     console.log(response.statusCode) // 200
     console.log(response.headers['content-type'])
@@ -53,15 +53,13 @@ async function generateResponse(prompt) {
 
   const response = await openai.chat.completions.create({
     messages: [
-      {
-        role: "system",
-        content: ContextData[0].context,
-      },
+      // {  // REMOVING THE CONTEXT FOR NOW
+      //   role: "system",
+      //   content: ContextData[0].context,
+      // },
       {
         role: "user",
         content: `
-        Follow the instructions in the System role always.
-        Keep those instructions in context all the time.
 
         GIVE ANSWERS IN ONLY 30 WORDS MAX. KEEP IT SHORT AND TO THE POINT.
 
@@ -77,6 +75,7 @@ async function generateResponse(prompt) {
   const fileName = 'output-'+Date.now()+'.mp3';
 
   if (process.env.USE_ELEVEN_LABS === "true") {
+    console.log("Using Eleven Labs");
     await elevenLabsTextToSpeech(response.choices[0].message.content, fileName);
   }
   return {content: response.choices[0].message.content, fileName};
