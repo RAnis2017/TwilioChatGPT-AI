@@ -15,6 +15,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 export default function Home() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [selectedOption, setSelectedOption] = useState(options[0].value);
+  const [callInitiated, setCallInitiated] = useState(false);
 
   const handleStartCall = async () => {
     try {
@@ -32,6 +33,7 @@ export default function Home() {
   
       // Handle successful call initiation (e.g., display a message)
       console.log('Call initiated successfully!'); 
+      setCallInitiated(true);
     } catch (error) {
       console.error('Error initiating call:', error);
     }
@@ -80,7 +82,9 @@ export default function Home() {
 
       <div className="container mx-auto p-8"> 
         <h2 className="text-2xl font-semibold mb-4">Call Logs</h2>
-        <CallLog /> 
+        {
+          phoneNumber && phoneNumber.length > 6 && callInitiated && <CallLog phoneNumber={phoneNumber} isWhisperAIEnabled={selectedOption === '1' || selectedOption === '3'} isElevenLabsEnabled={selectedOption === '1' || selectedOption === '2'} />
+        }
       </div>
     </main>
   );
