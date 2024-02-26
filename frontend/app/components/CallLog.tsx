@@ -59,8 +59,8 @@ function CallLog({ phoneNumber, isWhisperAIEnabled, isElevenLabsEnabled }: { pho
               className="border-b border-slate-600 py-2"
             >
               <div className="text-green-400 font-bold">Phone Number: {logEntry.phoneNumber || phoneNumber}</div>
-              <div>WhisperAI Enabled?: {isWhisperAIEnabled}</div>
-              <div>ElevenLabs Enabled?: {isElevenLabsEnabled}</div>
+              <div>WhisperAI Enabled?: {isWhisperAIEnabled ? "Yes" : "No"}</div>
+              <div>ElevenLabs Enabled?: {isElevenLabsEnabled ? "Yes" : "No"}</div>
               <div>Timestamp: {new Date(logEntry.timestamp).toString()}</div>
               <div className="font-bold bg-slate-400 p-6 mt-2 rounded-lg">Message: {logEntry.message}</div>
             </li>
