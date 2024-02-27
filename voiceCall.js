@@ -16,18 +16,17 @@ const client = require("twilio")(
 const SSE = require("express-sse"); // You'll need this module
 const sse = new SSE();
 const CORS = require("cors");
-
+const ROUTE_PREFIX = "/api/";
 const app = express();
 const port = 1337;
+let clients = [];
 
 // Parse XML request bodies and JSON
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(CORS());
 
-app.use("/assets", express.static("assets"));
-
-let clients = [];
+app.use(ROUTE_PREFIX+"assets", express.static("assets"));
 
 function eventsHandler(request, response) {
   const headers = {
@@ -66,7 +65,7 @@ function eventsHandler(request, response) {
 }
 
 // SSE endpoint to transmit new log events
-app.get("/logs", eventsHandler);
+app.get(ROUTE_PREFIX+"logs", eventsHandler);
 
 // Modify logging
 function logToCallFileAndNotify(callData, message) {
@@ -155,7 +154,7 @@ function processVoiceRequest(
   res.send(twiml.toString());
 }
 
-app.post("/initiate-call", async (req, res) => {
+app.post(ROUTE_PREFIX+"initiate-call", async (req, res) => {
   setTimeout(() => {
     logToCallFileAndNotify(req.body, "Call initiated");
   }, 2000);
@@ -172,7 +171,7 @@ app.post("/initiate-call", async (req, res) => {
 });
 
 // Endpoint for incoming calls
-app.post("/voice", async (req, res) => {
+app.post(ROUTE_PREFIX+"voice", async (req, res) => {
   const twiml = new VoiceResponse();
   setTimeout(() => {
     logToCallFileAndNotify(
@@ -206,7 +205,7 @@ app.post("/voice", async (req, res) => {
 });
 
 // Endpoint to handle recording completion
-app.post("/recording-complete", async (req, res) => {
+app.post(ROUTE_PREFIX+"recording-complete", async (req, res) => {
   // add a delay to ensure the recording is processed
   await new Promise((resolve) => setTimeout(resolve, 2000));
 
@@ -328,7 +327,7 @@ app.post("/recording-complete", async (req, res) => {
 });
 
 // Endpoint to process transcribed speech
-app.post("/process-speech", async (req, res) => {
+app.post(ROUTE_PREFIX+"process-speech", async (req, res) => {
   const transcription = req.body.SpeechResult;
   logToCallFileAndNotify(
     {
