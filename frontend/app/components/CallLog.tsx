@@ -13,6 +13,10 @@ function useFetchEventSource(url: any, options = {}) {
     }
   };
 
+  const clear = () => {
+    setData([]);
+  };
+
   useEffect(() => {
     const eventSource = new EventSource(url, options);
 
@@ -33,7 +37,7 @@ function useFetchEventSource(url: any, options = {}) {
     };
   }, []);
 
-  return { data, error };
+  return { data, error, clear };
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -47,7 +51,7 @@ function CallLog({
   isWhisperAIEnabled: boolean;
   isElevenLabsEnabled: boolean;
 }) {
-  const { data, error } = useFetchEventSource(
+  const { data, error, clear } = useFetchEventSource(
     `${API_URL}/logs?clientId=${phoneNumber}`
   );
   const [logs, setLogs] = useState([]);
@@ -73,7 +77,7 @@ function CallLog({
           </h1>
           <button
             className="bg-slate-400 text-white px-4 py-2 rounded-lg"
-            onClick={() => setLogs([])}
+            onClick={() => {clear(); setLogs([])}}
           >
             Clear
           </button>
