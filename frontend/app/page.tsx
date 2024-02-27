@@ -37,9 +37,6 @@ export default function Home() {
       console.error('Error initiating call:', error);
     }
 
-    setTimeout(() => {
-      setCallInitiated(false);
-    }, 5000);
   };
 
   return (
@@ -77,7 +74,7 @@ export default function Home() {
         </div>
         <button
           className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
-          disabled={!phoneNumber || phoneNumber.length < 6 || callInitiated}
+          disabled={!phoneNumber || phoneNumber.length < 6}
           onClick={handleStartCall}
         >
           Start Call
