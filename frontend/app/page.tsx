@@ -19,6 +19,7 @@ export default function Home() {
 
   const handleStartCall = async () => {
     try {
+      setCallInitiated(true);
       const useWhisperAI = selectedOption === '1' || selectedOption === '3';
       const useElevenLabs = selectedOption === '1' || selectedOption === '2';
       const response = await fetch(API_URL+'/initiate-call', {
@@ -33,10 +34,13 @@ export default function Home() {
   
       // Handle successful call initiation (e.g., display a message)
       console.log('Call initiated successfully!'); 
-      setCallInitiated(true);
     } catch (error) {
       console.error('Error initiating call:', error);
     }
+
+    setTimeout(() => {
+      setCallInitiated(false);
+    }, 5000);
   };
 
   return (
@@ -73,7 +77,8 @@ export default function Home() {
           </select>
         </div>
         <button
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+          disabled={!phoneNumber || phoneNumber.length < 6 || callInitiated}
           onClick={handleStartCall}
         >
           Start Call
