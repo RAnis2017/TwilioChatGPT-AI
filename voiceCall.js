@@ -360,7 +360,7 @@ app.post(ROUTE_PREFIX+"process-speech", async (req, res) => {
 
 // Basic intent recognition - Expand and Refine!
 async function processAppointmentRequest(text) {
-  if (text.toLowerCase().includes("bye") || text.toLowerCase().includes("no")) {
+  if (text.toLowerCase().includes("bye") || text.trim().length === 0) {
     return {
       message: "Bye",
       fileName: "bye.mp3",
