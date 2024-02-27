@@ -133,7 +133,7 @@ function processVoiceRequest(
     twiml.record({
       recordingStatusCallbackEvent: "completed",
       action:
-        "/recording-complete?includeElevenLabs=" +
+      ROUTE_PREFIX+"recording-complete?includeElevenLabs=" +
         INCLUDE_ELEVEN_LABS +
         "&phoneNumber=" +
         phoneNumber?.trim(), // POST request to this endpoint after gathering
@@ -143,7 +143,7 @@ function processVoiceRequest(
       input: "speech", //
       timeout: 3, // 5 seconds to start speaking
       action:
-        "/process-speech?includeElevenLabs=" +
+      ROUTE_PREFIX+"process-speech?includeElevenLabs=" +
         INCLUDE_ELEVEN_LABS +
         "&phoneNumber=" +
         phoneNumber?.trim(), // POST request to this endpoint after gathering
