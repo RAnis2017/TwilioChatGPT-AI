@@ -207,7 +207,7 @@ app.post(ROUTE_PREFIX+"voice", async (req, res) => {
 // Endpoint to handle recording completion
 app.post(ROUTE_PREFIX+"recording-complete", async (req, res) => {
   // add a delay to ensure the recording is processed
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  await new Promise((resolve) => setTimeout(resolve, 3000));
 
   const twiml = new VoiceResponse();
 
