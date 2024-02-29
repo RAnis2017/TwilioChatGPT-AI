@@ -442,12 +442,18 @@ async function processAppointmentRequest(text) {
 }
 
 // the WebSocket server for the Twilio media stream to connect to.
-app.ws("/stream", function (ws, req) {
+app.ws(ROUTE_PREFIX+"stream", function (ws, req) {
   // Save stream data to a buffer and then convert it to an WAV file on connection close
 
   let buffer = Buffer.from("");
 
   ws.on("message", async function (message) {
+    // Check if the message is a JSON message
+    if (message[0] !== "{") {
+      console.error("No JSON message: Got (", message , ")");
+      ws.send("No JSON message: Got (" + message + ")"); // Send a message back to the client
+      return; 
+    }
     const msg = JSON.parse(message);
     switch (msg.event) {
       case "connected":
@@ -459,10 +465,14 @@ app.ws("/stream", function (ws, req) {
       case "media":
         // Store the media stream data in a text file and o =
         // "payload": "a3242sadfasfa423242... (a base64 encoded string of 8000/mulaw)"
-        buffer = Buffer.concat([
-          buffer,
-          Buffer.from(msg.media.payload, "base64"),
-        ]);
+        if (msg.media.payload) {
+          buffer = Buffer.concat([
+            buffer,
+            Buffer.from(msg.media.payload, "base64"),
+          ]);
+        } else {
+          console.error("No media payload: Got (", msg , ")");
+        }
 
         break;
       case "stop":
