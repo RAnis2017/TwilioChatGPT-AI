@@ -11,6 +11,8 @@ const client = require("twilio")(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
+const { RealtimeService } = require("assemblyai");
+
 // const { logToFile } = require('./logger');
 const SSE = require("express-sse"); // You'll need this module
 const sse = new SSE();
@@ -20,6 +22,7 @@ const app = express();
 const expressWs = require("express-ws")(app);
 const port = 1337;
 let clients = [];
+
 
 // Parse XML request bodies and JSON
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -141,54 +144,28 @@ async function processVoiceRequest(
 
   // Start Streaming
   console.log("Creating stream for call", callSid);
-  const stream = await client
-    .calls(callSid)
-    .streams.create({
-      url: `${process.env.WEBSOCKET_URL}`,
-    });
+  const stream = await client.calls(callSid).streams.create({
+    url: `${process.env.WEBSOCKET_URL}`,
+  });
 
   console.log("Stream created", stream.sid);
-  
-  if (INCLUDE_WHISPER_AI === "true") {
-    console.log("Using Whisper AI");
-    // const streamStart = twiml.start();
-    // const streamFileName = "WhisperAI" + Date.now() + phoneNumber;
-    // const stream = streamStart.stream({
-    //   name: streamFileName,
-    //   url: `${process.env.WEBSOCKET_URL}`,
-    // });
-    // stream.parameter({
-    //   name: "fileName",
-    //   value: streamFileName,
-    // });
-    twiml.record({
-      recordingStatusCallbackEvent: "completed",
-      action:
-        ROUTE_PREFIX +
-        "recording-complete?includeElevenLabs=" +
-        INCLUDE_ELEVEN_LABS +
-        "&phoneNumber=" +
-        phoneNumber?.trim(), // POST request to this endpoint after gathering
-    });
-    // twiml.stop();
-  } else {
-    twiml.gather({
-      input: "speech", //
-      timeout: 3, // 5 seconds to start speaking
-      action:
-        ROUTE_PREFIX +
-        "process-speech?includeElevenLabs=" +
-        INCLUDE_ELEVEN_LABS +
-        "&includeWhisperAI=" +
-        INCLUDE_WHISPER_AI +
-        "&phoneNumber=" +
-        phoneNumber?.trim() +
-        "&streamSid=" +
-        stream.sid +
-        "&callSid=" +
-        callSid, // POST request to this endpoint after gathering
-    });
-  }
+
+  twiml.gather({
+    input: "speech", //
+    timeout: 3, // 5 seconds to start speaking
+    action:
+      ROUTE_PREFIX +
+      "process-speech?includeElevenLabs=" +
+      INCLUDE_ELEVEN_LABS +
+      "&includeWhisperAI=" +
+      INCLUDE_WHISPER_AI +
+      "&phoneNumber=" +
+      phoneNumber?.trim() +
+      "&streamSid=" +
+      stream.sid +
+      "&callSid=" +
+      callSid, // POST request to this endpoint after gathering
+  });
 
   res.type("text/xml");
   res.send(twiml.toString());
@@ -388,6 +365,10 @@ app.post(ROUTE_PREFIX + "process-speech", async (req, res) => {
     .streams(streamSid)
     .update({ status: "stopped" });
 
+  // add some delay to ensure the stream is stopped
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
   logToCallFileAndNotify(
     {
       phoneNumber: req.query.phoneNumber,
@@ -397,7 +378,7 @@ app.post(ROUTE_PREFIX + "process-speech", async (req, res) => {
   let text = transcription;
   if (req.query.includeWhisperAI === "true") {
     console.log("Using Whisper AI, using the streamed mp3 file");
-    const transcribedText = await transcribe("./assets/" + streamSid + ".mp3");
+    const transcribedText = await transcribe("./assets/" + streamSid + ".wav");
     text = transcribedText.text;
   }
 
@@ -462,11 +443,11 @@ async function processAppointmentRequest(text) {
 
 // the WebSocket server for the Twilio media stream to connect to.
 app.ws("/stream", function (ws, req) {
-  // Save stream data to a buffer and then convert it to an MP3 file on connection close
+  // Save stream data to a buffer and then convert it to an WAV file on connection close
 
   let buffer = Buffer.from("");
 
-  ws.on("message", function (message) {
+  ws.on("message", async function (message) {
     const msg = JSON.parse(message);
     switch (msg.event) {
       case "connected":
@@ -476,17 +457,19 @@ app.ws("/stream", function (ws, req) {
         console.info("Twilio media stream started");
         break;
       case "media":
-        console.log(msg);
         // Store the media stream data in a text file and o =
         // "payload": "a3242sadfasfa423242... (a base64 encoded string of 8000/mulaw)"
-        buffer = Buffer.concat([buffer, Buffer.from(msg.media.payload, "base64")]);
+        buffer = Buffer.concat([
+          buffer,
+          Buffer.from(msg.media.payload, "base64"),
+        ]);
 
         break;
       case "stop":
         console.info("Twilio media stream stopped");
-        // Convert the buffer to an MP3 file
-        fs.writeFileSync("output.raw", buffer);
-        const command = `ffmpeg -f mulaw -ar 8000 -i output.raw ./assets/${msg.streamSid}.mp3`;
+        // Convert the buffer to an WAV file
+        fs.writeFileSync(msg.streamSid+".raw", buffer);
+        const command = `ffmpeg -f mulaw -ar 8000 -i ${msg.streamSid}.raw ./assets/${msg.streamSid}.wav`;
         console.log("Executing command", command);
         const exec = require("child_process").exec;
         exec(command, (error, stdout, stderr) => {
@@ -497,6 +480,7 @@ app.ws("/stream", function (ws, req) {
           console.log(`stdout: ${stdout}`);
           console.error(`stderr: ${stderr}`);
         });
+        
         break;
     }
   });

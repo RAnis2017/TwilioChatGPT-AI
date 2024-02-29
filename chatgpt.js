@@ -20,7 +20,7 @@ const elevenLabsTextToSpeech = async (text, fileName) => {
     body: JSON.stringify({"pronunciation_dictionary_locators":[],"model_id":"eleven_turbo_v2","text":text,"voice_settings":{"similarity_boost":1,"stability":1}})
   };
   
-  request.post('https://api.elevenlabs.io/v1/text-to-speech/'+process.env.ELEVEN_LABS_VOICE_ID+'?optimize_streaming_latency=1&output_format=mp3_22050_32', options)
+  request.post('https://api.elevenlabs.io/v1/text-to-speech/'+process.env.ELEVEN_LABS_VOICE_ID+'?optimize_streaming_latency=4&output_format=mp3_22050_32', options)
   .on('response', function(response) {
     console.log(response.statusCode) // 200
     console.log(response.headers['content-type'])
@@ -28,6 +28,16 @@ const elevenLabsTextToSpeech = async (text, fileName) => {
   .pipe(fs.createWriteStream(path.join(__dirname, 'assets/'+fileName)))
     .on('close', function() {
       console.log('File written!');
+      // Delete the file after 5 minutes
+      setTimeout(() => {
+        fs.unlink(path.join(__dirname, 'assets/'+fileName), (err) => {
+          if (err) {
+            console.error(err)
+            return
+          }
+          console.log('File deleted!')
+        })
+      }, 300000);
       resolve();
     }
   );
