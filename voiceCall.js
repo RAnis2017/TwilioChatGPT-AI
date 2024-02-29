@@ -1,6 +1,5 @@
 require("dotenv").config();
 const express = require("express");
-
 const request = require("request");
 const fs = require("fs");
 const VoiceResponse = require("twilio").twiml.VoiceResponse;
@@ -18,6 +17,7 @@ const sse = new SSE();
 const CORS = require("cors");
 const ROUTE_PREFIX = "/api/";
 const app = express();
+const expressWs = require("express-ws")(app);
 const port = 1337;
 let clients = [];
 
@@ -26,7 +26,7 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(CORS());
 
-app.use(ROUTE_PREFIX+"assets", express.static("assets"));
+app.use(ROUTE_PREFIX + "assets", express.static("assets"));
 
 function eventsHandler(request, response) {
   const headers = {
@@ -65,7 +65,7 @@ function eventsHandler(request, response) {
 }
 
 // SSE endpoint to transmit new log events
-app.get(ROUTE_PREFIX+"logs", eventsHandler);
+app.get(ROUTE_PREFIX + "logs", eventsHandler);
 
 // Modify logging
 function logToCallFileAndNotify(callData, message) {
@@ -105,10 +105,13 @@ async function waitForAnswer(
   res,
   INCLUDE_WHISPER_AI = "false",
   INCLUDE_ELEVEN_LABS = "false",
-  phoneNumber = null
+  phoneNumber = null,
+  callSid = null
 ) {
-  console.log("Waiting for another query...");
   const twiml = new VoiceResponse();
+
+  console.log("Waiting for another query...");
+
   if (INCLUDE_ELEVEN_LABS === "true") {
     twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);
   } else {
@@ -116,37 +119,74 @@ async function waitForAnswer(
   }
   twiml.play(`${process.env.HOST_ASSETS_URL}/continue.mp3`);
 
-  processVoiceRequest(twiml, res, INCLUDE_WHISPER_AI, INCLUDE_ELEVEN_LABS, phoneNumber);
+  await processVoiceRequest(
+    twiml,
+    res,
+    INCLUDE_WHISPER_AI,
+    INCLUDE_ELEVEN_LABS,
+    phoneNumber,
+    callSid
+  );
 }
 
-function processVoiceRequest(
+async function processVoiceRequest(
   twiml,
   res,
   INCLUDE_WHISPER_AI = "false",
   INCLUDE_ELEVEN_LABS = "false",
-  phoneNumber = null
+  phoneNumber = null,
+  callSid = null
 ) {
   // Record the entire call
 
+  // Start Streaming
+  console.log("Creating stream for call", callSid);
+  const stream = await client
+    .calls(callSid)
+    .streams.create({
+      url: `${process.env.WEBSOCKET_URL}`,
+    });
+
+  console.log("Stream created", stream.sid);
+  
   if (INCLUDE_WHISPER_AI === "true") {
     console.log("Using Whisper AI");
+    // const streamStart = twiml.start();
+    // const streamFileName = "WhisperAI" + Date.now() + phoneNumber;
+    // const stream = streamStart.stream({
+    //   name: streamFileName,
+    //   url: `${process.env.WEBSOCKET_URL}`,
+    // });
+    // stream.parameter({
+    //   name: "fileName",
+    //   value: streamFileName,
+    // });
     twiml.record({
       recordingStatusCallbackEvent: "completed",
       action:
-      ROUTE_PREFIX+"recording-complete?includeElevenLabs=" +
+        ROUTE_PREFIX +
+        "recording-complete?includeElevenLabs=" +
         INCLUDE_ELEVEN_LABS +
         "&phoneNumber=" +
         phoneNumber?.trim(), // POST request to this endpoint after gathering
     });
+    // twiml.stop();
   } else {
     twiml.gather({
       input: "speech", //
       timeout: 3, // 5 seconds to start speaking
       action:
-      ROUTE_PREFIX+"process-speech?includeElevenLabs=" +
+        ROUTE_PREFIX +
+        "process-speech?includeElevenLabs=" +
         INCLUDE_ELEVEN_LABS +
+        "&includeWhisperAI=" +
+        INCLUDE_WHISPER_AI +
         "&phoneNumber=" +
-        phoneNumber?.trim(), // POST request to this endpoint after gathering
+        phoneNumber?.trim() +
+        "&streamSid=" +
+        stream.sid +
+        "&callSid=" +
+        callSid, // POST request to this endpoint after gathering
     });
   }
 
@@ -154,7 +194,7 @@ function processVoiceRequest(
   res.send(twiml.toString());
 }
 
-app.post(ROUTE_PREFIX+"initiate-call", async (req, res) => {
+app.post(ROUTE_PREFIX + "initiate-call", async (req, res) => {
   setTimeout(() => {
     logToCallFileAndNotify(req.body, "Call initiated");
   }, 2000);
@@ -166,13 +206,14 @@ app.post(ROUTE_PREFIX+"initiate-call", async (req, res) => {
     })
     .then((call) => {
       console.log(call.sid);
-      res.send("Call initiated");
     });
 });
 
 // Endpoint for incoming calls
-app.post(ROUTE_PREFIX+"voice", async (req, res) => {
+app.post(ROUTE_PREFIX + "voice", async (req, res) => {
   const twiml = new VoiceResponse();
+  const call = req.body.CallSid;
+
   setTimeout(() => {
     logToCallFileAndNotify(
       {
@@ -185,27 +226,29 @@ app.post(ROUTE_PREFIX+"voice", async (req, res) => {
   // Record the entire call
   if (req.query.outbound === "true") {
     twiml.play(`${process.env.HOST_ASSETS_URL}/introduction-2.mp3`);
-    processVoiceRequest(
+    await processVoiceRequest(
       twiml,
       res,
       req.query.useWhisperAI,
       req.query.useElevenLabs,
-      req.query.phoneNumber
+      req.query.phoneNumber,
+      call
     );
   } else {
     twiml.play(`${process.env.HOST_ASSETS_URL}/introduction.mp3`);
-    processVoiceRequest(
+    await processVoiceRequest(
       twiml,
       res,
       USE_WHISPER_AI,
       USE_ELEVEN_LABS,
-      req.query.phoneNumber
+      req.query.phoneNumber,
+      call
     );
   }
 });
 
 // Endpoint to handle recording completion
-app.post(ROUTE_PREFIX+"recording-complete", async (req, res) => {
+app.post(ROUTE_PREFIX + "recording-complete", async (req, res) => {
   // add a delay to ensure the recording is processed
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
@@ -251,7 +294,7 @@ app.post(ROUTE_PREFIX+"recording-complete", async (req, res) => {
               transcribedText.text
             );
 
-            console.log('chatGPTResponse', chatGPTResponse);
+            console.log("chatGPTResponse", chatGPTResponse);
 
             logToCallFileAndNotify(
               {
@@ -277,7 +320,13 @@ app.post(ROUTE_PREFIX+"recording-complete", async (req, res) => {
                   req.query.phoneNumber
                 );
               } else {
-                await waitForAnswer(chatGPTResponse, res, true, false, req.query.phoneNumber);
+                await waitForAnswer(
+                  chatGPTResponse,
+                  res,
+                  true,
+                  false,
+                  req.query.phoneNumber
+                );
               }
             } else {
               logToCallFileAndNotify(
@@ -327,15 +376,32 @@ app.post(ROUTE_PREFIX+"recording-complete", async (req, res) => {
 });
 
 // Endpoint to process transcribed speech
-app.post(ROUTE_PREFIX+"process-speech", async (req, res) => {
+app.post(ROUTE_PREFIX + "process-speech", async (req, res) => {
   const transcription = req.body.SpeechResult;
+
+  // stop the stream
+  const callSid = req.query.callSid;
+  const streamSid = req.query.streamSid;
+  console.log("Stopping stream", streamSid, "for call", callSid);
+  const stream = await client
+    .calls(callSid)
+    .streams(streamSid)
+    .update({ status: "stopped" });
+
   logToCallFileAndNotify(
     {
       phoneNumber: req.query.phoneNumber,
     },
     "Transcription: " + transcription
   );
-  const response = await processAppointmentRequest(transcription);
+  let text = transcription;
+  if (req.query.includeWhisperAI === "true") {
+    console.log("Using Whisper AI, using the streamed mp3 file");
+    const transcribedText = await transcribe("./assets/" + streamSid + ".mp3");
+    text = transcribedText.text;
+  }
+
+  const response = await processAppointmentRequest(text);
   const twiml = new VoiceResponse();
 
   logToCallFileAndNotify(
@@ -347,9 +413,23 @@ app.post(ROUTE_PREFIX+"process-speech", async (req, res) => {
 
   if (response.continue) {
     if (req.query.includeElevenLabs === "true") {
-      await waitForAnswer(response, res, false, req.query.includeElevenLabs, req.query.phoneNumber);
+      await waitForAnswer(
+        response,
+        res,
+        false,
+        req.query.includeElevenLabs,
+        req.query.phoneNumber,
+        callSid
+      );
     } else {
-      await waitForAnswer(response, res, false, false, req.query.phoneNumber);
+      await waitForAnswer(
+        response,
+        res,
+        false,
+        false,
+        req.query.phoneNumber,
+        callSid
+      );
     }
   } else {
     twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);
@@ -379,6 +459,51 @@ async function processAppointmentRequest(text) {
     }
   }
 }
+
+// the WebSocket server for the Twilio media stream to connect to.
+app.ws("/stream", function (ws, req) {
+  // Save stream data to a buffer and then convert it to an MP3 file on connection close
+
+  let buffer = Buffer.from("");
+
+  ws.on("message", function (message) {
+    const msg = JSON.parse(message);
+    switch (msg.event) {
+      case "connected":
+        console.info("Twilio media stream connected");
+        break;
+      case "start":
+        console.info("Twilio media stream started");
+        break;
+      case "media":
+        console.log(msg);
+        // Store the media stream data in a text file and o =
+        // "payload": "a3242sadfasfa423242... (a base64 encoded string of 8000/mulaw)"
+        buffer = Buffer.concat([buffer, Buffer.from(msg.media.payload, "base64")]);
+
+        break;
+      case "stop":
+        console.info("Twilio media stream stopped");
+        // Convert the buffer to an MP3 file
+        fs.writeFileSync("output.raw", buffer);
+        const command = `ffmpeg -f mulaw -ar 8000 -i output.raw ./assets/${msg.streamSid}.mp3`;
+        console.log("Executing command", command);
+        const exec = require("child_process").exec;
+        exec(command, (error, stdout, stderr) => {
+          if (error) {
+            console.error(`Error: ${error}`);
+            return;
+          }
+          console.log(`stdout: ${stdout}`);
+          console.error(`stderr: ${stderr}`);
+        });
+        break;
+    }
+  });
+  ws.on("close", async () => {
+    console.log("Twilio media stream WebSocket disconnected");
+  });
+});
 
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
