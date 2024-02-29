@@ -360,14 +360,14 @@ app.post(ROUTE_PREFIX + "process-speech", async (req, res) => {
   const callSid = req.query.callSid;
   const streamSid = req.query.streamSid;
   console.log("Stopping stream", streamSid, "for call", callSid);
+  // add some delay to ensure the stream is stopped
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
   const stream = await client
     .calls(callSid)
     .streams(streamSid)
     .update({ status: "stopped" });
 
-  // add some delay to ensure the stream is stopped
-
-  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   logToCallFileAndNotify(
     {
