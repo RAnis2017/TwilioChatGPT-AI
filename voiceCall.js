@@ -241,7 +241,7 @@ app.post(ROUTE_PREFIX + "process-speech", async (req, res) => {
 
   // add some delay to ensure the stream is stopped
 
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  // await new Promise((resolve) => setTimeout(resolve, 5));
 
   logToCallFileAndNotify(
     {
