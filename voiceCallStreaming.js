@@ -118,7 +118,7 @@ async function waitForAnswer(
   if (INCLUDE_ELEVEN_LABS === "true") {
     console.log("Using Eleven Labs", `${process.env.HOST_ASSETS_URL}/${response.fileName}`);
     // twiml.say(response.message);
-    twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);
+    // twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);
   } else {
     twiml.say(response.message);
   }
@@ -142,31 +142,10 @@ async function processVoiceRequest(
   phoneNumber = null,
   callSid = null
 ) {
-  // Record the entire call
-
-  // Start Streaming
-  console.log("Creating stream for call", callSid);
-  const stream = await client.calls(callSid).streams.create({
+  const connect = twiml.connect();
+  connect.stream({
+    name: "stream-"+callSid,
     url: `${process.env.WEBSOCKET_URL}`,
-  });
-
-  console.log("Stream created", stream.sid);
-
-  twiml.gather({
-    input: "speech", //
-    timeout: 2, // 5 seconds to start speaking
-    action:
-      ROUTE_PREFIX +
-      "process-speech?includeElevenLabs=" +
-      INCLUDE_ELEVEN_LABS +
-      "&includeWhisperAI=" +
-      INCLUDE_WHISPER_AI +
-      "&phoneNumber=" +
-      phoneNumber?.trim() +
-      "&streamSid=" +
-      stream.sid +
-      "&callSid=" +
-      callSid, // POST request to this endpoint after gathering
   });
 
   res.type("text/xml");
@@ -233,15 +212,16 @@ app.post(ROUTE_PREFIX + "process-speech", async (req, res) => {
   // stop the stream
   const callSid = req.query.callSid;
   const streamSid = req.query.streamSid;
-  console.log("Stopping stream", streamSid, "for call", callSid);
-  const stream = await client
-    .calls(callSid)
-    .streams(streamSid)
-    .update({ status: "stopped" });
+  // console.log("Stopping stream", streamSid, "for call", callSid);
+  // clear the stream
+  // const stream = await client
+  //   .calls(callSid)
+  //   .streams(streamSid)
+  //   .update({ status: "stopped" });
 
   // add some delay to ensure the stream is stopped
 
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   logToCallFileAndNotify(
     {
@@ -250,14 +230,21 @@ app.post(ROUTE_PREFIX + "process-speech", async (req, res) => {
     "Transcription: " + transcription
   );
   let text = transcription;
-  if (req.query.includeWhisperAI === "true") {
-    console.log("Using Whisper AI, using the streamed mp3 file");
-    const transcribedText = await transcribe("./assets/" + streamSid + ".wav");
-    text = transcribedText.text;
-  }
+  // TURN THIS OFF FOR NOW
+  // if (req.query.includeWhisperAI === "true") {
+  //   console.log("Using Whisper AI, using the streamed mp3 file");
+  //   const transcribedText = await transcribe("./assets/" + streamSid + ".wav");
+  //   text = transcribedText.text;
+  // }
 
-  const response = await processAppointmentRequest(text);
+  // const outGoingStream = await client.calls(callSid).streams.create({
+  //   url: `${process.env.WEBSOCKET_URL}`,
+  // });
+  // await new Promise((resolve) => setTimeout(resolve, 500));
   const twiml = new VoiceResponse();
+  // const response = await processAppointmentRequest(text);
+
+  const response = await processAppointmentRequest(text, callSid);
 
   logToCallFileAndNotify(
     {
@@ -294,7 +281,7 @@ app.post(ROUTE_PREFIX + "process-speech", async (req, res) => {
 });
 
 // Basic intent recognition - Expand and Refine!
-async function processAppointmentRequest(text) {
+async function processAppointmentRequest(text, callSid = null) {
   if (text.toLowerCase().includes("bye") || text.trim().length === 0) {
     return {
       message: "Bye",
@@ -303,8 +290,24 @@ async function processAppointmentRequest(text) {
     };
   } else {
     try {
-      let message = await generateResponse(text);
-      console.log("Generated response", message);
+      // get the WS client for the stream
+      let message;
+      if (callSid) {
+      const wsClient = WS_CLIENTS.find((client) => client.id === callSid);
+      console.log("WS Client", wsClient);
+      message = await generateResponse(text, wsClient.ws, wsClient.streamSid);
+
+
+      // shut down the stream
+
+      await client
+      .calls(callSid)
+      .streams(streamSid)
+      .update({ status: "stopped" });
+
+      } else {
+        message = await generateResponse(text);
+      }
       
       return {
         message: message.content,
@@ -333,43 +336,41 @@ app.ws(ROUTE_PREFIX+"stream", function (ws, req) {
     const msg = JSON.parse(message);
     switch (msg.event) {
       case "connected":
-        console.info("Twilio media stream connected");
-        WS_CLIENTS.push({
-          id: msg.streamSid,
-          ws,
-        });
+        console.info("Twilio media stream connected", msg);
         break;
       case "start":
-        console.info("Twilio media stream started");
+        console.info("Twilio media stream started", msg);
+        WS_CLIENTS.push({id: msg.start.callSid, streamSid: msg.start.streamSid, ws});
         break;
       case "media":
+        console.info("Twilio media stream media", msg);
         // Store the media stream data in a text file and o =
         // "payload": "a3242sadfasfa423242... (a base64 encoded string of 8000/mulaw)"
-        if (msg.media.payload) {
-          buffer = Buffer.concat([
-            buffer,
-            Buffer.from(msg.media.payload, "base64"),
-          ]);
-        } else {
-          console.error("No media payload: Got (", msg , ")");
-        }
+        // if (msg.media.payload) {
+        //   buffer = Buffer.concat([
+        //     buffer,
+        //     Buffer.from(msg.media.payload, "base64"),
+        //   ]);
+        // } else {
+        //   console.error("No media payload: Got (", msg , ")");
+        // }
 
         break;
       case "stop":
         console.info("Twilio media stream stopped");
         // Convert the buffer to an WAV file
-        fs.writeFileSync(msg.streamSid+".raw", buffer);
-        const command = `ffmpeg -f mulaw -ar 8000 -i ${msg.streamSid}.raw ./assets/${msg.streamSid}.wav`;
-        console.log("Executing command", command);
-        const exec = require("child_process").exec;
-        exec(command, (error, stdout, stderr) => {
-          if (error) {
-            console.error(`Error: ${error}`);
-            return;
-          }
-          console.log(`stdout: ${stdout}`);
-          console.error(`stderr: ${stderr}`);
-        });
+        // fs.writeFileSync(msg.streamSid+".raw", buffer);
+        // const command = `ffmpeg -f mulaw -ar 8000 -i ${msg.streamSid}.raw ./assets/${msg.streamSid}.wav`;
+        // console.log("Executing command", command);
+        // const exec = require("child_process").exec;
+        // exec(command, (error, stdout, stderr) => {
+        //   if (error) {
+        //     console.error(`Error: ${error}`);
+        //     return;
+        //   }
+        //   console.log(`stdout: ${stdout}`);
+        //   console.error(`stderr: ${stderr}`);
+        // });
         
         break;
     }
