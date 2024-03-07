@@ -106,11 +106,11 @@ async function generateResponse(prompt) {
     ws.on("close", () => {
       // console.log("Connection closed");
       // console.log(JSON.stringify(fileBuffer));
-      fs.writeFileSync(filePath+".wav", Buffer.concat(fileBuffer));
+      fs.writeFileSync(filePath+".mp3", Buffer.concat(fileBuffer));
       // console.log("Finished writing file", filePath);
       resolve({
         content: response,
-        fileName: fileName+".wav",
+        fileName: fileName+".mp3",
       });
     });
 
