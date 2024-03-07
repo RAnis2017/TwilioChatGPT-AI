@@ -11,7 +11,6 @@ const client = require("twilio")(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
-const { RealtimeService } = require("assemblyai");
 
 // const { logToFile } = require('./logger');
 const SSE = require("express-sse"); // You'll need this module
@@ -22,6 +21,7 @@ const app = express();
 const expressWs = require("express-ws")(app);
 const port = 1337;
 let clients = [];
+const WS_CLIENTS = [];
 
 
 // Parse XML request bodies and JSON
@@ -116,6 +116,8 @@ async function waitForAnswer(
   console.log("Waiting for another query...");
 
   if (INCLUDE_ELEVEN_LABS === "true") {
+    console.log("Using Eleven Labs", `${process.env.HOST_ASSETS_URL}/${response.fileName}`);
+    // twiml.say(response.message);
     twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);
   } else {
     twiml.say(response.message);
@@ -152,7 +154,7 @@ async function processVoiceRequest(
 
   twiml.gather({
     input: "speech", //
-    timeout: 3, // 5 seconds to start speaking
+    timeout: 2, // 5 seconds to start speaking
     action:
       ROUTE_PREFIX +
       "process-speech?includeElevenLabs=" +
@@ -222,134 +224,6 @@ app.post(ROUTE_PREFIX + "voice", async (req, res) => {
       call
     );
   }
-});
-
-// Endpoint to handle recording completion
-app.post(ROUTE_PREFIX + "recording-complete", async (req, res) => {
-  // add a delay to ensure the recording is processed
-  await new Promise((resolve) => setTimeout(resolve, 3000));
-
-  const twiml = new VoiceResponse();
-
-  const recordingUrl = req.body.RecordingUrl + ".mp3";
-
-  logToCallFileAndNotify(
-    {
-      phoneNumber: req.query.phoneNumber,
-    },
-    "Recording completed: " + recordingUrl
-  );
-
-  // Download the recording (directly as MP3)
-  request
-    .get(recordingUrl, {
-      headers: {
-        Accept: "audio/mpeg",
-      },
-    })
-    .on("response", async (response) => {
-      // Check on response before piping
-      const contentType = response.headers["content-type"];
-      const filename = `${Date.now()}.${contentType.split("/")[1]}`;
-
-      // File checks passed -  Proceed with download and further processing
-      response
-        .pipe(fs.createWriteStream(filename))
-        .on("close", async () => {
-          console.log("Recording saved:", filename, recordingUrl);
-          try {
-            const transcribedText = await transcribe(filename);
-
-            logToCallFileAndNotify(
-              {
-                phoneNumber: req.query.phoneNumber,
-              },
-              "Transcription: " + transcribedText.text
-            );
-
-            const chatGPTResponse = await processAppointmentRequest(
-              transcribedText.text
-            );
-
-            console.log("chatGPTResponse", chatGPTResponse);
-
-            logToCallFileAndNotify(
-              {
-                phoneNumber: req.query.phoneNumber,
-              },
-              "Transcription processed response: " + chatGPTResponse.message
-            );
-
-            if (chatGPTResponse.continue) {
-              logToCallFileAndNotify(
-                {
-                  phoneNumber: req.query.phoneNumber,
-                },
-                "Waiting for another query..."
-              );
-
-              if (req.query.includeElevenLabs === "true") {
-                await waitForAnswer(
-                  chatGPTResponse,
-                  res,
-                  true,
-                  req.query.includeElevenLabs,
-                  req.query.phoneNumber
-                );
-              } else {
-                await waitForAnswer(
-                  chatGPTResponse,
-                  res,
-                  true,
-                  false,
-                  req.query.phoneNumber
-                );
-              }
-            } else {
-              logToCallFileAndNotify(
-                {
-                  phoneNumber: req.query.phoneNumber,
-                },
-                "Response: " + chatGPTResponse.message
-              );
-
-              if (USE_ELEVEN_LABS === "true") {
-                twiml.play(
-                  `${process.env.HOST_ASSETS_URL}/${chatGPTResponse.fileName}`
-                );
-              } else {
-                twiml.say(chatGPTResponse.message);
-              }
-              res.type("text/xml");
-              res.send(twiml.toString());
-            }
-          } catch (error) {
-            logToCallFileAndNotify(
-              {
-                phoneNumber: req.query.phoneNumber,
-              },
-              "Error: " + error
-            );
-
-            twiml.play(`${process.env.HOST_ASSETS_URL}/error.mp3`);
-            res.type("text/xml");
-            res.send("<Response/>"); // Send an empty response to end the Twilio interaction
-          }
-        })
-        .on("error", (err) => {
-          logToCallFileAndNotify(
-            {
-              phoneNumber: req.query.phoneNumber,
-            },
-            "Error: " + err
-          );
-
-          console.error("Error downloading file", err);
-          twiml.play(`${process.env.HOST_ASSETS_URL}/error.mp3`);
-          res.type("text/xml");
-          res.send("<Response/>"); // Send an empty response to end the Twilio interaction
-        });
-    });
 });
 
 // Endpoint to process transcribed speech
@@ -430,6 +304,7 @@ async function processAppointmentRequest(text) {
   } else {
     try {
       let message = await generateResponse(text);
+      console.log("Generated response", message);
       return {
         message: message.content,
         fileName: message.fileName,
@@ -458,6 +333,10 @@ app.ws(ROUTE_PREFIX+"stream", function (ws, req) {
     switch (msg.event) {
       case "connected":
         console.info("Twilio media stream connected");
+        WS_CLIENTS.push({
+          id: msg.streamSid,
+          ws,
+        });
         break;
       case "start":
         console.info("Twilio media stream started");

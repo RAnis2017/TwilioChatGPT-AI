@@ -13,53 +13,28 @@ dotenv.config();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const elevenLabsStreamingTextToSpeech = async (
+  ws,
   text,
-  fileNameInitial,
-  fileIndex,
   isLast = false
 ) => {
-  const fileName = `part-${fileNameInitial}-${fileIndex}.mp3`;
 
-  const ws = new WebSocket(
-    `wss://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_LABS_VOICE_ID}/stream-input`
-  );
+  const payload = {
+    model_id: "eleven_turbo_v2",
+    text: text,
+    voice_settings: {
+      stability: 0.8,
+      similarity_boost: 0.8
+    },
+    generation_config: {
+      chunk_length_schedule: [120, 160, 250, 290]
+    },
+    xi_api_key: process.env.ELEVEN_LABS_API_KEY,
+  };
+  ws.send(JSON.stringify(payload));
 
-  ws.on("open", () => {
-      const payload = {
-        model_id: "eleven_turbo_v2",
-        text: text,
-        voice_settings: {
-          similarity_boost: 1,
-          stability: 1,
-        },
-        xi_api_key: process.env.ELEVEN_LABS_API_KEY,
-      };
-
-
-      if (isLast) {
-        payload.text = "";
-      }
-      ws.send(JSON.stringify(payload));
-  });
-
-  ws.on("message", (data) => {
-    const parsedData = JSON.parse(data);
-    if (parsedData.audio) {
-      console.log("Received audio data");
-      console.log(parsedData.audio);
-
-      // send to twilio socket to play the audio
-
-    }
-  });
-
-  ws.on("close", () => {
-
-    // No need for the setTimeout/file deletion here,
-    // as the file writing is handled directly within the WebSocket
-
-    // Consider calling your mergeAudioFiles function here if needed
-  });
+  if (isLast) {
+    ws.send(JSON.stringify({ ...payload, text: "" })); // Send an empty string to signal the end of the input
+  }
 };
 
 const transcribe = async (fileName) => {
@@ -73,49 +48,86 @@ const transcribe = async (fileName) => {
   return response;
 };
 
-async function generateResponse(prompt, res) {
-  try {
-    const responseStream = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "user",
-          content: `GIVE ANSWERS IN ONLY 30 WORDS MAX. KEEP IT SHORT AND TO THE POINT.${prompt}`,
-        },
-      ],
-      stream: true,
-    });
-    // turn the string to speech and return the file name
-    const fileName = "output-" + Date.now();
-    let fileIndex = 0;
-    for await (const part of responseStream) {
-      process.stdout.write(part.choices[0]?.delta?.content || "");
-      if (part.choices[0]?.delta?.content) {
-        fileIndex++;
-        elevenLabsStreamingTextToSpeech(
-          part.choices[0]?.delta?.content,
-          fileName,
-          fileIndex,
-          part.done
-        );
-      }
-    }
+async function generateResponse(prompt) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const responseStream = await openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "user",
+            content: `GIVE ANSWERS IN ONLY 30 WORDS MAX. KEEP IT SHORT AND TO THE POINT.${prompt}`,
+          },
+        ],
+        stream: true,
+      });
+      // turn the string to speech and return the file name
+      const fileName = "output-" + Date.now();
+      const filePath = path.join(__dirname, "assets", fileName);
+      let fileIndex = 0;
+      
+      const ws = new WebSocket(
+        `wss://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_LABS_VOICE_ID}/stream-input`
+      );
+      let response = "";
+      ws.on("open", async () => {
+        for await (const part of responseStream) {
+          if (part.choices[0]?.delta?.content) {
+            // console.log("Part ("+fileIndex+"):",part.choices[0]?.delta?.content || "");
+            
+            response += part.choices[0]?.delta?.content;
 
-    console.log("Finished generating audio");
-    elevenLabsStreamingTextToSpeech("", fileName, fileIndex + 1);
-  } catch (error) {
-    console.error("Error in generateResponse:", error);
-    res.writeHead(500, { "Content-Type": "text/plain" });
-    res.write("An error occurred");
-    res.end();
-  }
+            fileIndex++;
+            elevenLabsStreamingTextToSpeech(
+              ws,
+              part.choices[0]?.delta?.content,
+              part.done
+            );
+          }
+        }
+        elevenLabsStreamingTextToSpeech(ws, "", true);
+      });
+
+      
+    const fileBuffer = [];
+
+    ws.on("message", (data) => {
+      const dataString = data.toString();
+      if (dataString.includes("audio")) {
+        const audioData = JSON.parse(dataString);
+        if (audioData.audio) {
+          const audioBuffer = Buffer.from(audioData.audio, "base64");
+          fileBuffer.push(audioBuffer);
+          // console.log("Received audio chunk", fileBuffer);
+        }
+      }
+    });
+
+    ws.on("close", () => {
+      // console.log("Connection closed");
+      // console.log(JSON.stringify(fileBuffer));
+      fs.writeFileSync(filePath+".wav", Buffer.concat(fileBuffer));
+      // console.log("Finished writing file", filePath);
+      resolve({
+        content: response,
+        fileName: fileName+".wav",
+      });
+    });
+
+      // console.log("Finished generating audio");
+      // elevenLabsStreamingTextToSpeech("", fileName, fileIndex + 1, true);
+    } catch (error) {
+      console.error("Error in generateResponse:", error);
+      reject(error);
+    }
+  });
 }
 
-(async () => {
-  const prompt = "Who was the first person to walk on the moon?";
-  const res = new Stream();
-  await generateResponse(prompt, res);
-})();
+// (async () => {
+//   const prompt = "Who was the first person to walk on the moon?";
+//   const res = new Stream();
+//   await generateResponse(prompt, res);
+// })();
 
 module.exports = {
   generateResponse,
