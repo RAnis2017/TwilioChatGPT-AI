@@ -306,7 +306,6 @@ async function processAppointmentRequest(text) {
       let message = await generateResponse(text);
       console.log("Generated response", message);
       
-      await new Promise((resolve) => setTimeout(resolve, 1000));
       return {
         message: message.content,
         fileName: message.fileName,
