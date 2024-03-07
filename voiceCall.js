@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const request = require("request");
 const fs = require("fs");
+const ffmpegPath = require("ffmpeg-static"); // Get the path to the ffmpeg binary
 const VoiceResponse = require("twilio").twiml.VoiceResponse;
 const bodyParser = require("body-parser"); // Or another suitable XML parser
 const { generateResponse, transcribe } = require("./streamingChatGPT");
@@ -22,7 +23,6 @@ const expressWs = require("express-ws")(app);
 const port = 1337;
 let clients = [];
 const WS_CLIENTS = [];
-
 
 // Parse XML request bodies and JSON
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -116,7 +116,10 @@ async function waitForAnswer(
   console.log("Waiting for another query...");
 
   if (INCLUDE_ELEVEN_LABS === "true") {
-    console.log("Using Eleven Labs", `${process.env.HOST_ASSETS_URL}/${response.fileName}`);
+    console.log(
+      "Using Eleven Labs",
+      `${process.env.HOST_ASSETS_URL}/${response.fileName}`
+    );
     // twiml.say(response.message);
     twiml.play(`${process.env.HOST_ASSETS_URL}/${response.fileName}`);
   } else {
@@ -305,7 +308,7 @@ async function processAppointmentRequest(text) {
     try {
       let message = await generateResponse(text);
       console.log("Generated response", message);
-      
+
       return {
         message: message.content,
         fileName: message.fileName,
@@ -318,7 +321,7 @@ async function processAppointmentRequest(text) {
 }
 
 // the WebSocket server for the Twilio media stream to connect to.
-app.ws(ROUTE_PREFIX+"stream", function (ws, req) {
+app.ws(ROUTE_PREFIX + "stream", function (ws, req) {
   // Save stream data to a buffer and then convert it to an WAV file on connection close
 
   let buffer = Buffer.from("");
@@ -326,9 +329,9 @@ app.ws(ROUTE_PREFIX+"stream", function (ws, req) {
   ws.on("message", async function (message) {
     // Check if the message is a JSON message
     if (message[0] !== "{") {
-      console.error("No JSON message: Got (", message , ")");
+      console.error("No JSON message: Got (", message, ")");
       ws.send("No JSON message: Got (" + message + ")"); // Send a message back to the client
-      return; 
+      return;
     }
     const msg = JSON.parse(message);
     switch (msg.event) {
@@ -351,15 +354,17 @@ app.ws(ROUTE_PREFIX+"stream", function (ws, req) {
             Buffer.from(msg.media.payload, "base64"),
           ]);
         } else {
-          console.error("No media payload: Got (", msg , ")");
+          console.error("No media payload: Got (", msg, ")");
         }
 
         break;
       case "stop":
         console.info("Twilio media stream stopped");
         // Convert the buffer to an WAV file
-        fs.writeFileSync(msg.streamSid+".raw", buffer);
-        const command = `ffmpeg -f mulaw -ar 8000 -i ${msg.streamSid}.raw ./assets/${msg.streamSid}.wav`;
+        const rawFilePath = `./assets/${msg.streamSid}.raw`;
+        const wavFilePath = `./assets/${msg.streamSid}.wav`;
+        fs.writeFileSync(rawFilePath, buffer);
+        const command = `${ffmpegPath} -f mulaw -ar 8000 -i ${rawFilePath} ${wavFilePath}`;
         console.log("Executing command", command);
         const exec = require("child_process").exec;
         exec(command, (error, stdout, stderr) => {
@@ -370,7 +375,7 @@ app.ws(ROUTE_PREFIX+"stream", function (ws, req) {
           console.log(`stdout: ${stdout}`);
           console.error(`stderr: ${stderr}`);
         });
-        
+
         break;
     }
   });
