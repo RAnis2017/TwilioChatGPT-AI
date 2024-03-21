@@ -19,7 +19,7 @@ app.post('/api/incoming', (req, res) => {
   res.end(`
   <Response>
     <Connect>
-      <Stream url="wss://${process.env.SERVER}/connection" />
+      <Stream url="wss://${process.env.SERVER}/api/connection" />
     </Connect>
   </Response>
   `);
