@@ -10,10 +10,10 @@ async function makeOutBoundCall() {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   
   const client = require('twilio')(accountSid, authToken);
-  console.log('URL:', `https://${process.env.SERVER}/incoming`);
+  console.log('URL:', `https://${process.env.SERVER}/api/incoming`);
   await client.calls
     .create({
-      url: `https://${process.env.SERVER}/incoming`,
+      url: `https://${process.env.SERVER}/api/incoming`,
       to: process.env.YOUR_NUMBER,
       from: process.env.FROM_NUMBER
     })
