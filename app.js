@@ -13,7 +13,7 @@ ExpressWs(app);
 
 const PORT = process.env.PORT || 3000;
 
-app.post('/incoming', (req, res) => {
+app.post('/api/incoming', (req, res) => {
   res.status(200);
   res.type('text/xml');
   res.end(`
@@ -25,7 +25,7 @@ app.post('/incoming', (req, res) => {
   `);
 });
 
-app.ws('/connection', (ws) => {
+app.ws('/api/connection', (ws) => {
   ws.on('error', console.error);
   // Filled in from start message
   let streamSid;
